@@ -1,0 +1,907 @@
+﻿
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\adapter\presenter\FinancePresenter.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.adapter.presenter;
+
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.entity.Transaction;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.entity.TransactionType;
+
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
+
+public class FinancePresenter {
+
+    private static final DateTimeFormatter DATE_TIME_FORMAT =
+            DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+
+    public String formatMoney(double amount) {
+        return "Rp " + String.format(Locale.US, "%,.2f", amount);
+    }
+
+    public String formatType(TransactionType type) {
+        return type == TransactionType.INCOME ? "Pemasukan" : "Pengeluaran";
+    }
+
+    public String formatCreatedAt(Transaction transaction) {
+        return transaction.getCreatedAt().format(DATE_TIME_FORMAT);
+    }
+
+    public String format(Transaction transaction) {
+        return String.format("[%d] %s | %s | [%s]",
+                transaction.getId(),
+                transaction.getDescription(),
+                formatMoney(transaction.getAmount()),
+                formatType(transaction.getType()));
+    }
+
+    public String formatBalance(double balance) {
+        return "Saldo: " + formatMoney(balance);
+    }
+
+    public String formatList(List<Transaction> transactions, String header, String emptyMessage) {
+        StringBuilder builder = new StringBuilder(header);
+        if (transactions.isEmpty()) {
+            builder.append('\n').append(emptyMessage);
+            return builder.toString();
+        }
+        String body = transactions.stream()
+                .map(this::format)
+                .collect(Collectors.joining("\n"));
+        builder.append('\n').append(body);
+        return builder.toString();
+    }
+
+    public String showTransactions(List<Transaction> transactions) {
+        return formatList(transactions, "Daftar Transaksi:", "- Belum ada transaksi!");
+    }
+
+    public String showSearchResults(List<Transaction> transactions, String keyword) {
+        return formatList(transactions, "Hasil Pencarian: \"" + keyword + "\"",
+                "- Transaksi tidak ditemukan!");
+    }
+
+    public String showAddSuccess(Transaction transaction) {
+        return "Berhasil menambah transaksi: " + format(transaction);
+    }
+
+    public String showRemoveSuccess() {
+        return "Berhasil menghapus transaksi.";
+    }
+
+    public String showRemoveFailed(int id) {
+        return String.format("[!] Gagal menghapus transaksi dengan ID: %d.", id);
+    }
+
+    public String showInvalidAmount() {
+        return "[!] Jumlah harus berupa angka!";
+    }
+
+    public String showValidationError(String message) {
+        return "[!] " + message;
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\adapter\repository\InMemoryRepository.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.adapter.repository;
+
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.repository.IRepository;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.function.Predicate;
+
+/**
+ * Basis generic repository in-memory.
+ *
+ * @param <T>  tipe entitas
+ * @param <ID> tipe identifier
+ */
+public abstract class InMemoryRepository<T, ID> implements IRepository<T, ID> {
+
+    protected final List<T> data = new ArrayList<>();
+
+    private final Function<T, ID> idExtractor;
+
+    protected InMemoryRepository(Function<T, ID> idExtractor) {
+        this.idExtractor = idExtractor;
+    }
+
+    @Override
+    public List<T> findAll() {
+        return new ArrayList<>(data);
+    }
+
+    @Override
+    public Optional<T> findById(ID id) {
+        return data.stream()
+                .filter(item -> idExtractor.apply(item).equals(id))
+                .findFirst();
+    }
+
+    @Override
+    public T save(T entity) {
+        data.add(entity);
+        return entity;
+    }
+
+    @Override
+    public boolean deleteById(ID id) {
+        return data.removeIf(item -> idExtractor.apply(item).equals(id));
+    }
+
+    @Override
+    public void update(T entity) {
+    }
+
+    @Override
+    public List<T> findBy(Predicate<T> predicate) {
+        return data.stream()
+                .filter(predicate)
+                .toList();
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\adapter\repository\TransactionRepository.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.adapter.repository;
+
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.entity.Transaction;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.entity.TransactionType;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.repository.ITransactionRepository;
+
+public class TransactionRepository extends InMemoryRepository<Transaction, Integer>
+        implements ITransactionRepository {
+
+    private int idCounter = 0;
+
+    public TransactionRepository() {
+        super(Transaction::getId);
+    }
+
+    @Override
+    public Transaction save(String description, double amount, TransactionType type) {
+        Transaction transaction = new Transaction(nextId(), description, amount, type);
+        return save(transaction);
+    }
+
+    private int nextId() {
+        return ++idCounter;
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\config\AppConfig.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.config;
+
+import org.delcom.ifs25028pbo2026springbootcashflow.adapter.presenter.FinancePresenter;
+import org.delcom.ifs25028pbo2026springbootcashflow.adapter.repository.TransactionRepository;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.repository.ITransactionRepository;
+import org.delcom.ifs25028pbo2026springbootcashflow.usecase.FinanceUseCase;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class AppConfig {
+
+    @Bean
+    public ITransactionRepository transactionRepository() {
+        return new TransactionRepository();
+    }
+
+    @Bean
+    public FinanceUseCase financeUseCase(ITransactionRepository transactionRepository) {
+        return new FinanceUseCase(transactionRepository);
+    }
+
+    @Bean
+    public FinancePresenter financePresenter() {
+        return new FinancePresenter();
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\domain\entity\SortOption.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.domain.entity;
+
+import java.util.Comparator;
+
+public enum SortOption {
+
+    /** Jumlah terkecil lebih dulu. */
+    AMOUNT_ASC(Comparator.comparingDouble(Transaction::getAmount)),
+
+    /** Jumlah terbesar lebih dulu. */
+    AMOUNT_DESC(Comparator.comparingDouble(Transaction::getAmount).reversed()),
+
+    /** Pemasukan ditampilkan lebih dulu. */
+    INCOME_FIRST(Comparator.comparing(Transaction::getType)),
+
+    /** Pengeluaran ditampilkan lebih dulu. */
+    EXPENSE_FIRST(Comparator.comparing(Transaction::getType).reversed());
+
+    private final Comparator<Transaction> comparator;
+
+    SortOption(Comparator<Transaction> comparator) {
+        this.comparator = comparator;
+    }
+
+    public Comparator<Transaction> comparator() {
+        return comparator;
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\domain\entity\Transaction.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.domain.entity;
+
+import java.time.LocalDateTime;
+
+public class Transaction {
+
+    private final int id;
+
+    private String description;
+    private double amount;
+    private final TransactionType type;
+    private final LocalDateTime createdAt;
+
+    public Transaction(int id, String description, double amount, TransactionType type) {
+        this(id, description, amount, type, LocalDateTime.now());
+    }
+
+    public Transaction(int id, String description, double amount, TransactionType type,
+                       LocalDateTime createdAt) {
+        this.id = id;
+        this.description = description;
+        this.amount = amount;
+        this.type = type;
+        this.createdAt = createdAt;
+    }
+
+    public int getId() {
+        return id;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public double getAmount() {
+        return amount;
+    }
+
+    public TransactionType getType() {
+        return type;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    /** Mengubah keterangan transaksi. */
+    public void changeDescription(String description) {
+        this.description = description;
+    }
+
+    /** Mengubah jumlah uang transaksi. */
+    public void changeAmount(double amount) {
+        this.amount = amount;
+    }
+
+    /** Jumlah bertanda: positif untuk pemasukan, negatif untuk pengeluaran. */
+    public double signedAmount() {
+        return type == TransactionType.INCOME ? amount : -amount;
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\domain\entity\TransactionType.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.domain.entity;
+
+public enum TransactionType {
+    INCOME,
+    EXPENSE
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\domain\exception\DomainException.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.domain.exception;
+
+public class DomainException extends Exception {
+
+    public DomainException(String message) {
+        super(message);
+    }
+
+    public DomainException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\domain\exception\EntityNotFoundException.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.domain.exception;
+
+public class EntityNotFoundException extends DomainException {
+
+    private final int id;
+
+    public EntityNotFoundException(int id) {
+        super("Transaksi dengan ID " + id + " tidak ditemukan.");
+        this.id = id;
+    }
+
+    public int getId() {
+        return id;
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\domain\exception\ValidationException.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.domain.exception;
+
+public class ValidationException extends DomainException {
+
+    public ValidationException(String message) {
+        super(message);
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\domain\repository\IRepository.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.domain.repository;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.function.Predicate;
+
+/**
+ * Port generic untuk operasi penyimpanan dan pencarian.
+ *
+ * @param <T>  tipe entitas
+ * @param <ID> tipe identifier entitas
+ */
+public interface IRepository<T, ID> {
+
+    List<T> findAll();
+
+    Optional<T> findById(ID id);
+
+    T save(T entity);
+
+    boolean deleteById(ID id);
+
+    void update(T entity);
+
+    List<T> findBy(Predicate<T> predicate);
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\domain\repository\ITransactionRepository.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.domain.repository;
+
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.entity.Transaction;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.entity.TransactionType;
+
+public interface ITransactionRepository extends IRepository<Transaction, Integer> {
+
+    /**
+     * Menyimpan transaksi baru.
+     *
+     * @return transaksi yang tersimpan (sudah punya ID)
+     */
+    Transaction save(String description, double amount, TransactionType type);
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\framework\view\FinanceView.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.framework.view;
+
+import com.vaadin.flow.component.button.Button;
+import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.dialog.Dialog;
+import com.vaadin.flow.component.grid.Grid;
+import com.vaadin.flow.component.html.Div;
+import com.vaadin.flow.component.html.H1;
+import com.vaadin.flow.component.html.Paragraph;
+import com.vaadin.flow.component.html.Span;
+import com.vaadin.flow.component.icon.VaadinIcon;
+import com.vaadin.flow.component.notification.Notification;
+import com.vaadin.flow.component.notification.NotificationVariant;
+import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
+import com.vaadin.flow.component.orderedlayout.VerticalLayout;
+import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.router.PageTitle;
+import com.vaadin.flow.router.Route;
+import org.delcom.ifs25028pbo2026springbootcashflow.adapter.presenter.FinancePresenter;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.entity.Transaction;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.entity.TransactionType;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.exception.EntityNotFoundException;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.exception.ValidationException;
+import org.delcom.ifs25028pbo2026springbootcashflow.usecase.FinanceUseCase;
+
+import java.util.Comparator;
+import java.util.List;
+
+
+@Route("")
+@PageTitle("Catatan Keuangan")
+public class FinanceView extends VerticalLayout {
+
+    private final FinanceUseCase useCase;
+    private final FinancePresenter presenter;
+
+    private final Grid<Transaction> grid = new Grid<>(Transaction.class, false);
+    private final TextField searchField = new TextField();
+    private final Paragraph statusLabel = new Paragraph();
+    private final Span emptyState = new Span("- Belum ada transaksi!");
+
+    private final Span totalCount = new Span("0");
+    private final Span totalIncome = new Span();
+    private final Span totalExpense = new Span();
+    private final Span balanceLabel = new Span();
+
+    public FinanceView(FinanceUseCase useCase, FinancePresenter presenter) {
+        this.useCase = useCase;
+        this.presenter = presenter;
+
+        setSizeFull();
+        setPadding(true);
+        setSpacing(true);
+
+        configureGrid();
+        searchField.setPlaceholder("Cari keterangan...");
+        searchField.setPrefixComponent(VaadinIcon.SEARCH.create());
+        searchField.setClearButtonVisible(true);
+
+        add(new H1("Catatan Keuangan"), buildSummaryCards(), buildToolbar(), statusLabel, grid);
+        refreshAll();
+    }
+
+    private HorizontalLayout buildSummaryCards() {
+        HorizontalLayout summary = new HorizontalLayout(
+                createCard("Jumlah Transaksi", totalCount, "#DBEAFE", "#1D4ED8"),
+                createCard("Total Pemasukan", totalIncome, "#DCFCE7", "#16A34A"),
+                createCard("Total Pengeluaran", totalExpense, "#FEE2E2", "#DC2626"),
+                createCard("Saldo", balanceLabel, "#FEF3C7", "#D97706")
+        );
+        summary.setWidthFull();
+        summary.getStyle().set("align-items", "stretch");
+        return summary;
+    }
+
+    private Div createCard(String label, Span value, String background, String accent) {
+        Span caption = new Span(label);
+        caption.getStyle()
+                .set("display", "block")
+                .set("font-size", "0.875rem")
+                .set("font-weight", "500")
+                .set("color", accent);
+
+        value.getStyle()
+                .set("display", "block")
+                .set("margin-top", "0.35rem")
+                .set("font-size", "1.5rem")
+                .set("font-weight", "700")
+                .set("color", accent);
+
+        Div card = new Div(caption, value);
+        card.getStyle()
+                .set("flex", "1")
+                .set("min-width", "0")
+                .set("background", background)
+                .set("border-left", "6px solid " + accent)
+                .set("border-radius", "12px")
+                .set("padding", "1rem 1.1rem")
+                .set("box-sizing", "border-box");
+        return card;
+    }
+
+    private void updateSummary() {
+        totalCount.setText(String.valueOf(useCase.getAllTransactions().size()));
+        totalIncome.setText(presenter.formatMoney(useCase.getTotalIncome()));
+        totalExpense.setText(presenter.formatMoney(useCase.getTotalExpense()));
+        balanceLabel.setText(presenter.formatMoney(useCase.getBalance()));
+    }
+
+    private void configureGrid() {
+        grid.addColumn(Transaction::getId)
+                .setHeader("ID").setKey("id")
+                .setAutoWidth(true).setFlexGrow(0)
+                .setSortable(true).setComparator(Transaction::getId);
+
+        grid.addColumn(Transaction::getDescription)
+                .setHeader("Keterangan").setKey("description")
+                .setFlexGrow(1)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(Transaction::getDescription,
+                        String.CASE_INSENSITIVE_ORDER));
+
+        grid.addColumn(t -> presenter.formatMoney(t.getAmount()))
+                .setHeader("Jumlah").setKey("amount")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparingDouble(Transaction::getAmount));
+
+        grid.addColumn(t -> presenter.formatType(t.getType()))
+                .setHeader("Tipe").setKey("type")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(Transaction::getType));
+
+        grid.addColumn(presenter::formatCreatedAt)
+                .setHeader("Waktu").setKey("createdAt")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(Transaction::getCreatedAt));
+
+        grid.addComponentColumn(this::createActionButtons)
+                .setHeader("Tindakan").setKey("action")
+                .setAutoWidth(true).setFlexGrow(0)
+                .setSortable(false);
+
+        grid.setEmptyStateComponent(emptyState);
+        grid.setSizeFull();
+    }
+
+    private HorizontalLayout createActionButtons(Transaction transaction) {
+        Button deleteButton = new Button("Hapus", VaadinIcon.TRASH.create(),
+                event -> openDeleteDialog(transaction));
+        deleteButton.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_TERTIARY_INLINE);
+        return new HorizontalLayout(deleteButton);
+    }
+
+    private HorizontalLayout buildToolbar() {
+        Button incomeButton = new Button("Tambah Pemasukan", VaadinIcon.PLUS.create(),
+                event -> openAddDialog(TransactionType.INCOME));
+        incomeButton.addThemeVariants(ButtonVariant.LUMO_SUCCESS, ButtonVariant.LUMO_PRIMARY);
+
+        Button expenseButton = new Button("Tambah Pengeluaran", VaadinIcon.MINUS.create(),
+                event -> openAddDialog(TransactionType.EXPENSE));
+        expenseButton.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_PRIMARY);
+
+        Button searchButton = new Button("Cari", VaadinIcon.SEARCH.create(),
+                event -> searchTransactions());
+        Button refreshButton = new Button("Muat Ulang", VaadinIcon.REFRESH.create(),
+                event -> refreshAll());
+
+        HorizontalLayout toolbar = new HorizontalLayout(
+                searchField, searchButton, refreshButton, incomeButton, expenseButton);
+        toolbar.setWidthFull();
+        toolbar.setFlexGrow(1, searchField);
+        return toolbar;
+    }
+
+    private void openAddDialog(TransactionType type) {
+        boolean income = type == TransactionType.INCOME;
+
+        TextField descriptionField = new TextField("Keterangan");
+        descriptionField.setWidthFull();
+        TextField amountField = new TextField("Jumlah (Rp)");
+        amountField.setWidthFull();
+
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle(income ? "Tambah Pemasukan" : "Tambah Pengeluaran");
+        dialog.setWidth("450px");
+        dialog.add(new VerticalLayout(descriptionField, amountField));
+
+        Button saveButton = new Button("Simpan", VaadinIcon.CHECK.create(), event -> {
+            double amount;
+            try {
+                amount = Double.parseDouble(amountField.getValue().trim());
+            } catch (NumberFormatException ex) {
+                showError(presenter.showInvalidAmount());
+                return;
+            }
+            try {
+                Transaction created = income
+                        ? useCase.addIncome(descriptionField.getValue(), amount)
+                        : useCase.addExpense(descriptionField.getValue(), amount);
+                showSuccess(presenter.showAddSuccess(created));
+                dialog.close();
+                refreshAll();
+            } catch (ValidationException ex) {
+                showError(presenter.showValidationError(ex.getMessage()));
+            }
+        });
+        saveButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+
+        Button cancelButton = new Button("Batal", VaadinIcon.CLOSE.create(),
+                event -> dialog.close());
+
+        dialog.getFooter().add(cancelButton, saveButton);
+        dialog.open();
+    }
+
+    private void openDeleteDialog(Transaction transaction) {
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle("Hapus Transaksi");
+        dialog.add(new Paragraph("Yakin ingin menghapus transaksi \""
+                + transaction.getDescription() + "\" (ID " + transaction.getId() + ")?"));
+
+        Button confirmButton = new Button("Hapus", VaadinIcon.TRASH.create(), event -> {
+            deleteTransaction(transaction);
+            dialog.close();
+        });
+        confirmButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY, ButtonVariant.LUMO_ERROR);
+
+        Button cancelButton = new Button("Batal", VaadinIcon.CLOSE.create(),
+                event -> dialog.close());
+
+        dialog.getFooter().add(cancelButton, confirmButton);
+        dialog.open();
+    }
+
+    private void deleteTransaction(Transaction transaction) {
+        try {
+            useCase.removeTransaction(transaction.getId());
+            showSuccess(presenter.showRemoveSuccess());
+            refreshAll();
+        } catch (EntityNotFoundException ex) {
+            showError(presenter.showRemoveFailed(ex.getId()));
+        } catch (ValidationException ex) {
+            showError(presenter.showValidationError(ex.getMessage()));
+        }
+    }
+
+    private void searchTransactions() {
+        String keyword = searchField.getValue();
+        if (keyword.isBlank()) {
+            refreshAll();
+            return;
+        }
+        List<Transaction> results = useCase.searchTransactions(keyword);
+        emptyState.setText(results.isEmpty()
+                ? "- Transaksi tidak ditemukan!"
+                : "- Belum ada transaksi!");
+        refreshGrid(results, "Hasil Pencarian: \"" + keyword + "\"");
+    }
+
+    private void refreshAll() {
+        emptyState.setText("- Belum ada transaksi!");
+        refreshGrid(useCase.getAllTransactions(), "Daftar Transaksi");
+        searchField.clear();
+    }
+
+    private void refreshGrid(List<Transaction> transactions, String title) {
+        grid.setItems(transactions);
+        updateSummary();
+        statusLabel.setText(transactions.isEmpty()
+                ? title + " â€” " + emptyState.getText().replaceFirst("^- ", "")
+                : title);
+    }
+
+    private void showSuccess(String message) {
+        Notification n = Notification.show(message, 3000, Notification.Position.BOTTOM_START);
+        n.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+    }
+
+    private void showError(String message) {
+        Notification n = Notification.show(message, 4000, Notification.Position.BOTTOM_START);
+        n.addThemeVariants(NotificationVariant.LUMO_ERROR);
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\usecase\FinanceUseCase.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow.usecase;
+
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.entity.SortOption;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.entity.Transaction;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.entity.TransactionType;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.exception.EntityNotFoundException;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.exception.ValidationException;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.repository.ITransactionRepository;
+
+import java.util.List;
+
+public class FinanceUseCase {
+
+    private final ITransactionRepository repository;
+
+    public FinanceUseCase(ITransactionRepository repository) {
+        this.repository = repository;
+    }
+
+    public List<Transaction> getAllTransactions() {
+        return repository.findAll();
+    }
+
+    public Transaction addIncome(String description, double amount) throws ValidationException {
+        return add(description, amount, TransactionType.INCOME);
+    }
+
+    public Transaction addExpense(String description, double amount) throws ValidationException {
+        return add(description, amount, TransactionType.EXPENSE);
+    }
+
+    private Transaction add(String description, double amount, TransactionType type)
+            throws ValidationException {
+        validate(description, amount);
+        return repository.save(description.trim(), amount, type);
+    }
+
+    private void validate(String description, double amount) throws ValidationException {
+        if (description == null || description.trim().isEmpty()) {
+            throw new ValidationException("Keterangan tidak boleh kosong");
+        }
+        if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0) {
+            throw new ValidationException("Jumlah harus lebih besar dari 0");
+        }
+    }
+
+    public void removeTransaction(int id) throws EntityNotFoundException, ValidationException {
+        if (id <= 0) {
+            throw new ValidationException("ID tidak valid");
+        }
+        if (!repository.deleteById(id)) {
+            throw new EntityNotFoundException(id);
+        }
+    }
+
+    public List<Transaction> searchTransactions(String keyword) {
+        String lower = keyword.toLowerCase();
+        return repository.findBy(t -> t.getDescription().toLowerCase().contains(lower));
+    }
+
+    public List<Transaction> sortTransactions(SortOption option) {
+        return repository.findAll().stream()
+                .sorted(option.comparator())
+                .toList();
+    }
+
+    public double getTotalIncome() {
+        return totalOf(TransactionType.INCOME);
+    }
+
+    public double getTotalExpense() {
+        return totalOf(TransactionType.EXPENSE);
+    }
+
+    public double getBalance() {
+        return getTotalIncome() - getTotalExpense();
+    }
+
+    private double totalOf(TransactionType type) {
+        return repository.findAll().stream()
+                .filter(t -> t.getType() == type)
+                .mapToDouble(Transaction::getAmount)
+                .sum();
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\App.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class App {
+    public static void main(String[] args) throws Exception {
+        DotEnv.load();
+        SpringApplication.run(App.class, args);
+    }
+}
+
+===== src\main\java\org\delcom\ifs25028pbo2026springbootcashflow\DotEnv.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+/**
+ * Membaca file {@code .env} di working directory dan menaruh isinya ke system properties
+ * agar bisa dipakai di {@code application.yaml} (mis. {@code ${APP_PORT:8080}}).
+ */
+final class DotEnv {
+
+    private DotEnv() {
+    }
+
+    static void load() throws IOException {
+        load(Path.of(".env"));
+    }
+
+    static void load(Path path) throws IOException {
+        if (!Files.isRegularFile(path)) {
+            return;
+        }
+        List<String> lines = Files.readAllLines(path);
+        for (String raw : lines) {
+            applyLine(raw);
+        }
+    }
+
+    static void applyLine(String raw) {
+        String line = raw.trim();
+        if (line.isEmpty() || line.startsWith("#")) {
+            return;
+        }
+        int eq = line.indexOf('=');
+        if (eq <= 0) {
+            return;
+        }
+        String key = line.substring(0, eq).trim();
+        String value = stripQuotes(line.substring(eq + 1).trim());
+        if (System.getenv(key) != null || System.getProperty(key) != null) {
+            return;
+        }
+        System.setProperty(key, value);
+    }
+
+    private static String stripQuotes(String value) {
+        if (value.length() >= 2) {
+            char first = value.charAt(0);
+            char last = value.charAt(value.length() - 1);
+            if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+                return value.substring(1, value.length() - 1);
+            }
+        }
+        return value;
+    }
+}
+
+===== src\main\resources\application.yaml =====
+
+spring:
+  application:
+    name: ifs25028pbo2026springbootcashflow
+  devtools:
+    restart:
+      enabled: true
+      # Polling lebih andal di Windows daripada native file watch.
+      poll-interval: 1s
+      quiet-period: 400ms
+    liveload:
+      enabled: true
+
+server:
+  port: ${APP_PORT:8080}
+
+vaadin:
+  launch-browser: false
+  liveReload:
+    enabled: true
+
+===== src\test\java\org\delcom\ifs25028pbo2026springbootcashflow\AppTest.java =====
+
+package org.delcom.ifs25028pbo2026springbootcashflow;
+
+import org.delcom.ifs25028pbo2026springbootcashflow.adapter.presenter.FinancePresenter;
+import org.delcom.ifs25028pbo2026springbootcashflow.domain.repository.ITransactionRepository;
+import org.delcom.ifs25028pbo2026springbootcashflow.usecase.FinanceUseCase;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
+@SpringBootTest
+class AppTest {
+
+    @Autowired
+    private ITransactionRepository repository;
+
+    @Autowired
+    private FinanceUseCase useCase;
+
+    @Autowired
+    private FinancePresenter presenter;
+
+    @Test
+    void contextLoadsAndBeansAreWired() {
+        assertNotNull(repository);
+        assertNotNull(useCase);
+        assertNotNull(presenter);
+    }
+}
