@@ -51,13 +51,11 @@ public class FinanceView extends VerticalLayout {
         setSizeFull();
         setPadding(true);
         setSpacing(true);
-        getElement().setAttribute("role", "main");
 
         configureGrid();
         searchField.setPlaceholder("Cari keterangan...");
         searchField.setPrefixComponent(VaadinIcon.SEARCH.create());
         searchField.setClearButtonVisible(true);
-        searchField.setAriaLabel("Cari keterangan");
 
         add(new H1("Catatan Keuangan"), buildSummaryCards(), buildToolbar(), statusLabel, grid);
         refreshAll();
@@ -65,31 +63,30 @@ public class FinanceView extends VerticalLayout {
 
     private HorizontalLayout buildSummaryCards() {
         HorizontalLayout summary = new HorizontalLayout(
-                createCard("Jumlah Transaksi", totalCount, "#DBEAFE", "#1D4ED8", "#1E3A8A"),
-                createCard("Total Pemasukan", totalIncome, "#DCFCE7", "#16A34A", "#14532D"),
-                createCard("Total Pengeluaran", totalExpense, "#FEE2E2", "#DC2626", "#7F1D1D"),
-                createCard("Saldo", balanceLabel, "#FEF3C7", "#D97706", "#78350F")
+                createCard("Jumlah Transaksi", totalCount, "#DBEAFE", "#1D4ED8"),
+                createCard("Total Pemasukan", totalIncome, "#DCFCE7", "#16A34A"),
+                createCard("Total Pengeluaran", totalExpense, "#FEE2E2", "#DC2626"),
+                createCard("Saldo", balanceLabel, "#FEF3C7", "#D97706")
         );
         summary.setWidthFull();
         summary.getStyle().set("align-items", "stretch");
         return summary;
     }
 
-    private Div createCard(String label, Span value, String background, String accent,
-                           String textColor) {
+    private Div createCard(String label, Span value, String background, String accent) {
         Span caption = new Span(label);
         caption.getStyle()
                 .set("display", "block")
                 .set("font-size", "0.875rem")
                 .set("font-weight", "500")
-                .set("color", textColor);
+                .set("color", accent);
 
         value.getStyle()
                 .set("display", "block")
                 .set("margin-top", "0.35rem")
                 .set("font-size", "1.5rem")
                 .set("font-weight", "700")
-                .set("color", textColor);
+                .set("color", accent);
 
         Div card = new Div(caption, value);
         card.getStyle()
@@ -148,7 +145,6 @@ public class FinanceView extends VerticalLayout {
 
         grid.setEmptyStateComponent(emptyState);
         grid.setSizeFull();
-        grid.getElement().setAttribute("aria-label", "Daftar transaksi");
     }
 
     private HorizontalLayout createActionButtons(Transaction transaction) {
@@ -172,22 +168,11 @@ public class FinanceView extends VerticalLayout {
         Button refreshButton = new Button("Muat Ulang", VaadinIcon.REFRESH.create(),
                 event -> refreshAll());
 
-        styleButton(incomeButton, "#166534", "#FFFFFF");
-        styleButton(expenseButton, "#B91C1C", "#FFFFFF");
-        styleButton(searchButton, "#E5E7EB", "#1F2937");
-        styleButton(refreshButton, "#E5E7EB", "#1F2937");
-
         HorizontalLayout toolbar = new HorizontalLayout(
                 searchField, searchButton, refreshButton, incomeButton, expenseButton);
         toolbar.setWidthFull();
         toolbar.setFlexGrow(1, searchField);
         return toolbar;
-    }
-
-    private void styleButton(Button button, String background, String foreground) {
-        button.getStyle()
-                .set("background-color", background)
-                .set("color", foreground);
     }
 
     private void openAddDialog(TransactionType type) {
